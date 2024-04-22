@@ -68,10 +68,42 @@ func notFoundHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "<h1>Requested page not found :(</h1><p>If you have questions, please contact us.</p>")
 }
 
+// Article  Corresponding to an article data
+type Article struct {
+    Title, Body string
+    ID          int64
+}
+
 func articlesShowHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	id := vars["id"]
-	fmt.Fprint(w, "article ID:"+id)
+	// 1. get URL parameters
+    vars := mux.Vars(r)
+    id := vars["id"]
+
+    // 2. read the corresponding article data
+    article := Article{}
+    query := "SELECT * FROM articles WHERE id = ?"
+    err := db.QueryRow(query, id).Scan(&article.ID, &article.Title, &article.Body)
+
+    // 3. if an error occurs
+    if err != nil {
+        if err == sql.ErrNoRows {
+            // 3.1 data not found
+            w.WriteHeader(http.StatusNotFound)
+            fmt.Fprint(w, "404 article not found!")
+        } else {
+            // 3.2 database error
+            checkError(err)
+            w.WriteHeader(http.StatusInternalServerError)
+            fmt.Fprint(w, "500 server internal error!")
+        }
+    } else {
+        // 4. read successfully
+        tmpl, err := template.ParseFiles("resources/views/articles/show.gohtml")
+        checkError(err)
+
+        err = tmpl.Execute(w, article)
+        checkError(err)
+    }
 }
 
 func articlesIndexHandler(w http.ResponseWriter, r *http.Request) {
