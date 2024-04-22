@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -30,7 +31,7 @@ func initDB() {
 		AllowNativePasswords: true,
 	}
 
-	// 准备数据库连接池
+	// prepare database connection pool
 	db, err = sql.Open("mysql", config.FormatDSN())
 	checkError(err)
 
@@ -77,7 +78,7 @@ func articlesIndexHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "Access article list.")
 }
 
-// ArticlesFormData 创建博文表单数据
+// ArticlesFormData create blog post form data.
 type ArticlesFormData struct {
 	Title, Body string
 	URL         *url.URL
@@ -91,27 +92,30 @@ func articlesStoreHandler(w http.ResponseWriter, r *http.Request) {
 
 	errors := make(map[string]string)
 
-	// 验证标题
+	// validate title
 	if title == "" {
 		errors["title"] = "The title can not be blank"
 	} else if utf8.RuneCountInString(title) < 3 || utf8.RuneCountInString(title) > 40 {
 		errors["title"] = "Title lenght needs to be between 3-40"
 	}
 
-	// 验证内容
+	// validate content
 	if body == "" {
 		errors["body"] = "The content can not be blank"
 	} else if utf8.RuneCountInString(body) < 10 {
 		errors["body"] = "Content lenght needs to be greater than or equal to 10 bytes"
 	}
 
-	// 检查是否有错误
+	// check for errors
 	if len(errors) == 0 {
-		fmt.Fprint(w, "verifiction passed!<br>")
-		fmt.Fprintf(w, "value of title: %v <br>", title)
-		fmt.Fprintf(w, "lenght of title: %v <br>", utf8.RuneCountInString(title))
-		fmt.Fprintf(w, "value of body: %v <br>", body)
-		fmt.Fprintf(w, "lenght of body: %v <br>", utf8.RuneCountInString(body))
+		lastInsertID, err := saveArticleToDB(title, body)
+		if lastInsertID > 0 {
+			fmt.Fprint(w, "insertion successful, ID is "+strconv.FormatInt(lastInsertID, 10))
+		} else {
+			checkError(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, "500 server internal error")
+		}
 	} else {
 		storeURL, _ := router.Get("articles.store").URL()
 
@@ -133,6 +137,41 @@ func articlesStoreHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func saveArticleToDB(title string, body string) (int64, error) {
+
+    // Variable initialization  
+    var (
+        id   int64
+        err  error
+        rs   sql.Result
+        stmt *sql.Stmt
+    )
+
+    // 1.get a prepare statement
+    stmt, err = db.Prepare("INSERT INTO articles (title, body) VALUES(?,?)")
+    // routine error checking
+    if err != nil {
+        return 0, err
+    }
+
+    // 2. close this statement after this function is finished
+	// running to prevent it from  occupying the SQL connection
+    defer stmt.Close()
+
+    // 3. excute the request and pass parameters into the bound content
+    rs, err = stmt.Exec(title, body)
+    if err != nil {
+        return 0, err
+    }
+
+    // 4. if the insertion is successful, the auto-increment ID will be returned
+    if id, err = rs.LastInsertId(); id > 0 {
+        return id, nil
+    }
+
+    return 0, err
+}
+
 func forceHTMLMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 1. set header
@@ -148,7 +187,7 @@ func removeTrailingSlash(next http.Handler) http.Handler {
 			r.URL.Path = strings.TrimSuffix(r.URL.Path, "/")
 		}
 
-		// 2. pass the request on 
+		// 2. pass the request on
 		next.ServeHTTP(w, r)
 	})
 }
@@ -173,20 +212,20 @@ func articlesCreateHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func createTables() {
-    createArticlesSQL := `CREATE TABLE IF NOT EXISTS articles(
+	createArticlesSQL := `CREATE TABLE IF NOT EXISTS articles(
     id bigint(20) PRIMARY KEY AUTO_INCREMENT NOT NULL,
     title varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
     body longtext COLLATE utf8mb4_unicode_ci
 ); `
 
-    _, err := db.Exec(createArticlesSQL)
-    checkError(err)
+	_, err := db.Exec(createArticlesSQL)
+	checkError(err)
 }
 
 func main() {
 	initDB()
 	createTables()
-	
+
 	router.HandleFunc("/", homeHandler).Methods("GET").Name("home")
 	router.HandleFunc("/about", aboutHandler).Methods("GET").Name("about")
 
