@@ -7,7 +7,7 @@ import (
 	"strings"
 	"text/template"
 	"unicode/utf8"
-
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 )
 
