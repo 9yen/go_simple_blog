@@ -34,14 +34,14 @@ func initDB() {
 	db, err = sql.Open("mysql", config.FormatDSN())
 	checkError(err)
 
-	// 设置最大连接数
+	// set the maximum number of connections.
 	db.SetMaxOpenConns(25)
-	// 设置最大空闲连接数
+	// set the maximum number of idle connections.
 	db.SetMaxIdleConns(25)
-	// 设置每个链接的过期时间
+	// set expiration time for each link.
 	db.SetConnMaxLifetime(5 * time.Minute)
 
-	// 尝试连接，失败会报错
+	// try to connect, an error will be  reported if it fails.
 	err = db.Ping()
 	checkError(err)
 	fmt.Println("mysql connected!")
@@ -54,27 +54,27 @@ func checkError(err error) {
 }
 
 func homeHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "<h1>Hello, 欢迎来到 goblog！</h1>")
+	fmt.Fprint(w, "<h1>Hello, welcome to my goblog!</h1>")
 }
 
 func aboutHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "此博客是用以记录编程笔记，如您有反馈或建议，请联系 "+
+	fmt.Fprint(w, "This blog is used to record programming notes. If you have feedback or suggestions, please contact"+
 		"<a href=\"mailto:3267666759@qq.com\">3267666759@qq.com</a>")
 }
 
 func notFoundHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotFound)
-	fmt.Fprint(w, "<h1>请求页面未找到 :(</h1><p>如有疑惑，请联系我们。</p>")
+	fmt.Fprint(w, "<h1>Requested page not found :(</h1><p>If you have questions, please contact us.</p>")
 }
 
 func articlesShowHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
-	fmt.Fprint(w, "文章 ID："+id)
+	fmt.Fprint(w, "article ID:"+id)
 }
 
 func articlesIndexHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "访问文章列表")
+	fmt.Fprint(w, "Access article list.")
 }
 
 // ArticlesFormData 创建博文表单数据
@@ -93,25 +93,25 @@ func articlesStoreHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 验证标题
 	if title == "" {
-		errors["title"] = "标题不能为空"
+		errors["title"] = "The title can not be blank"
 	} else if utf8.RuneCountInString(title) < 3 || utf8.RuneCountInString(title) > 40 {
-		errors["title"] = "标题长度需介于 3-40"
+		errors["title"] = "Title lenght needs to be between 3-40"
 	}
 
 	// 验证内容
 	if body == "" {
-		errors["body"] = "内容不能为空"
+		errors["body"] = "The content can not be blank"
 	} else if utf8.RuneCountInString(body) < 10 {
-		errors["body"] = "内容长度需大于或等于 10 个字节"
+		errors["body"] = "Content lenght needs to be greater than or equal to 10 bytes"
 	}
 
 	// 检查是否有错误
 	if len(errors) == 0 {
-		fmt.Fprint(w, "验证通过!<br>")
-		fmt.Fprintf(w, "title 的值为: %v <br>", title)
-		fmt.Fprintf(w, "title 的长度为: %v <br>", utf8.RuneCountInString(title))
-		fmt.Fprintf(w, "body 的值为: %v <br>", body)
-		fmt.Fprintf(w, "body 的长度为: %v <br>", utf8.RuneCountInString(body))
+		fmt.Fprint(w, "verifiction passed!<br>")
+		fmt.Fprintf(w, "value of title: %v <br>", title)
+		fmt.Fprintf(w, "lenght of title: %v <br>", utf8.RuneCountInString(title))
+		fmt.Fprintf(w, "value of body: %v <br>", body)
+		fmt.Fprintf(w, "lenght of body: %v <br>", utf8.RuneCountInString(body))
 	} else {
 		storeURL, _ := router.Get("articles.store").URL()
 
@@ -135,20 +135,20 @@ func articlesStoreHandler(w http.ResponseWriter, r *http.Request) {
 
 func forceHTMLMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 1. 设置标头
+		// 1. set header
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		// 2. 继续处理请求
+		// 2. continue processing the request
 		next.ServeHTTP(w, r)
 	})
 }
 func removeTrailingSlash(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 1. 除首页以外，移除所有请求路径后面的斜杆
+		// 1. remove the diagonal bar behind all request paths except the homepage
 		if r.URL.Path != "/" {
 			r.URL.Path = strings.TrimSuffix(r.URL.Path, "/")
 		}
 
-		// 2. 将请求传递下去
+		// 2. pass the request on 
 		next.ServeHTTP(w, r)
 	})
 }
@@ -183,10 +183,10 @@ func main() {
 	router.HandleFunc("/articles", articlesStoreHandler).Methods("POST").Name("articles.store")
 	router.HandleFunc("/articles/create", articlesCreateHandler).Methods("GET").Name("articles.create")
 
-	// 自定义 404 页面
+	// custom 404 page
 	router.NotFoundHandler = http.HandlerFunc(notFoundHandler)
 
-	// 中间件：强制内容类型为 HTML
+	// middleware: force content type to HTML
 	router.Use(forceHTMLMiddleware)
 
 	http.ListenAndServe(":3000", removeTrailingSlash(router))
