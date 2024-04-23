@@ -74,6 +74,16 @@ type Article struct {
 	ID          int64
 }
 
+// Link method is used to generate article links.
+func (a Article) Link() string {
+	showURL, err := router.Get("articles.show").URL("id", strconv.FormatInt(a.ID, 10))
+	if err != nil {
+		checkError(err)
+		return ""
+	}
+	return showURL.String()
+}
+
 func articlesShowHandler(w http.ResponseWriter, r *http.Request) {
 	// 1. get URL parameters
 	id := getRouteVariable("id", r)
@@ -216,7 +226,33 @@ func articlesUpdateHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func articlesIndexHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "Access article list.")
+	// 1. Execute a query and return a result set.
+	rows, err := db.Query("SELECT * from articles")
+	checkError(err)
+	defer rows.Close()
+
+	var articles []Article
+	// 2. Loop reading result
+	for rows.Next() {
+		var article Article
+		// 2.1 Scan the results of echo row and assign them to an article object.
+		err := rows.Scan(&article.ID, &article.Title, &article.Body)
+		checkError(err)
+		// 2.2 Add article to the array articles.
+		articles = append(articles, article)
+	}
+
+	// 2.3 Detect whether an error occurred during the traversal.
+	err = rows.Err()
+	checkError(err)
+
+	// 3. Loading template
+	tmpl, err := template.ParseFiles("resources/views/articles/index.gohtml")
+	checkError(err)
+
+	// 4. Render the template and transfer all the data of the articles.
+	err = tmpl.Execute(w, articles)
+	checkError(err)
 }
 
 // ArticlesFormData create blog post form data.
