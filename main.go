@@ -70,40 +70,149 @@ func notFoundHandler(w http.ResponseWriter, r *http.Request) {
 
 // Article  Corresponding to an article data
 type Article struct {
-    Title, Body string
-    ID          int64
+	Title, Body string
+	ID          int64
 }
 
 func articlesShowHandler(w http.ResponseWriter, r *http.Request) {
 	// 1. get URL parameters
-    vars := mux.Vars(r)
-    id := vars["id"]
+	id := getRouteVariable("id", r)
 
-    // 2. read the corresponding article data
-    article := Article{}
-    query := "SELECT * FROM articles WHERE id = ?"
-    err := db.QueryRow(query, id).Scan(&article.ID, &article.Title, &article.Body)
+	// 2. read the corresponding article data
+	article, err := getArticleByID(id)
 
-    // 3. if an error occurs
-    if err != nil {
-        if err == sql.ErrNoRows {
-            // 3.1 data not found
-            w.WriteHeader(http.StatusNotFound)
-            fmt.Fprint(w, "404 article not found!")
-        } else {
-            // 3.2 database error
-            checkError(err)
-            w.WriteHeader(http.StatusInternalServerError)
-            fmt.Fprint(w, "500 server internal error!")
-        }
-    } else {
-        // 4. read successfully
-        tmpl, err := template.ParseFiles("resources/views/articles/show.gohtml")
-        checkError(err)
+	// 3. if an error occurs
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// 3.1 data not found
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, "404 article not found!")
+		} else {
+			// 3.2 database error
+			checkError(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, "500 server internal error!")
+		}
+	} else {
+		// 4. read successfully
+		tmpl, err := template.ParseFiles("resources/views/articles/show.gohtml")
+		checkError(err)
 
-        err = tmpl.Execute(w, article)
-        checkError(err)
-    }
+		err = tmpl.Execute(w, article)
+		checkError(err)
+	}
+}
+
+func getRouteVariable(parameterName string, r *http.Request) string {
+	vars := mux.Vars(r)
+	return vars[parameterName]
+}
+
+func getArticleByID(id string) (Article, error) {
+	article := Article{}
+	query := "SELECT * FROM articles WHERE id = ?"
+	err := db.QueryRow(query, id).Scan(&article.ID, &article.Title, &article.Body)
+	return article, err
+}
+
+func articlesEditHandler(w http.ResponseWriter, r *http.Request) {
+
+	// 1. get URL parameters
+	id := getRouteVariable("id", r)
+
+	// 2. read the corresponding article data
+	article, err := getArticleByID(id)
+
+	// 3. If there have an error.
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// 3.1 Data not found.
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, "404 article not found!")
+		} else {
+			// 3.2 Database error.
+			checkError(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, "500 internal server error!")
+		}
+	} else {
+		// 4. Read successful, display the form.
+		updateURL, _ := router.Get("articles.update").URL("id", id)
+		data := ArticlesFormData{
+			Title:  article.Title,
+			Body:   article.Body,
+			URL:    updateURL,
+			Errors: nil,
+		}
+		tmpl, err := template.ParseFiles("resources/views/articles/edit.gohtml")
+		checkError(err)
+
+		err = tmpl.Execute(w, data)
+		checkError(err)
+	}
+}
+
+func articlesUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	// 1. get article ID.
+	id := getRouteVariable("id", r)
+	// 2. get article content by ID
+	_, err := getArticleByID(id)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, "404 article not found!")
+		} else {
+			// database error
+			checkError(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, "500 internal server error.")
+		}
+	} else {
+		// No errors.
+
+		// Check the form.
+		title := r.PostFormValue("title")
+		body := r.PostFormValue("body")
+		errors := validateArticleFormData(title, body)
+
+		if len(errors) == 0 {
+			// No errors
+
+			// Form validation passed, updateing data.
+			query := "UPDATE articles SET title = ?, body = ? WHERE id = ?"
+			rs, err := db.Exec(query, title, body, id)
+
+			if err != nil {
+				checkError(err)
+				w.WriteHeader(http.StatusInternalServerError)
+				fmt.Fprint(w, "500 Internal server error!")
+			}
+
+			// Update successful, redirecting to the article details page.
+			if n, _ := rs.RowsAffected(); n > 0 {
+				showURL, _ := router.Get("articles.show").URL("id", id)
+				http.Redirect(w, r, showURL.String(), http.StatusFound)
+			} else {
+				fmt.Fprint(w, "You haven't made any changes!")
+			}
+		} else {
+			// 4.3 Form validation failed, displaying reasons.
+
+			updateURL, _ := router.Get("articles.update").URL("id", id)
+			data := ArticlesFormData{
+				Title:  title,
+				Body:   body,
+				URL:    updateURL,
+				Errors: errors,
+			}
+			tmpl, err := template.ParseFiles("resources/views/articles/edit.gohtml")
+			checkError(err)
+
+			err = tmpl.Execute(w, data)
+			checkError(err)
+		}
+	}
 }
 
 func articlesIndexHandler(w http.ResponseWriter, r *http.Request) {
@@ -117,14 +226,10 @@ type ArticlesFormData struct {
 	Errors      map[string]string
 }
 
-func articlesStoreHandler(w http.ResponseWriter, r *http.Request) {
-
-	title := r.PostFormValue("title")
-	body := r.PostFormValue("body")
+func validateArticleFormData(title string, body string) map[string]string {
 
 	errors := make(map[string]string)
 
-	// validate title
 	if title == "" {
 		errors["title"] = "The title can not be blank"
 	} else if utf8.RuneCountInString(title) < 3 || utf8.RuneCountInString(title) > 40 {
@@ -137,6 +242,16 @@ func articlesStoreHandler(w http.ResponseWriter, r *http.Request) {
 	} else if utf8.RuneCountInString(body) < 10 {
 		errors["body"] = "Content lenght needs to be greater than or equal to 10 bytes"
 	}
+
+	return errors
+}
+
+func articlesStoreHandler(w http.ResponseWriter, r *http.Request) {
+
+	title := r.PostFormValue("title")
+	body := r.PostFormValue("body")
+
+	errors := validateArticleFormData(title, body)
 
 	// check for errors
 	if len(errors) == 0 {
@@ -171,37 +286,37 @@ func articlesStoreHandler(w http.ResponseWriter, r *http.Request) {
 
 func saveArticleToDB(title string, body string) (int64, error) {
 
-    // Variable initialization  
-    var (
-        id   int64
-        err  error
-        rs   sql.Result
-        stmt *sql.Stmt
-    )
+	// Variable initialization
+	var (
+		id   int64
+		err  error
+		rs   sql.Result
+		stmt *sql.Stmt
+	)
 
-    // 1.get a prepare statement
-    stmt, err = db.Prepare("INSERT INTO articles (title, body) VALUES(?,?)")
-    // routine error checking
-    if err != nil {
-        return 0, err
-    }
+	// 1.get a prepare statement
+	stmt, err = db.Prepare("INSERT INTO articles (title, body) VALUES(?,?)")
+	// routine error checking
+	if err != nil {
+		return 0, err
+	}
 
-    // 2. close this statement after this function is finished
+	// 2. close this statement after this function is finished
 	// running to prevent it from  occupying the SQL connection
-    defer stmt.Close()
+	defer stmt.Close()
 
-    // 3. excute the request and pass parameters into the bound content
-    rs, err = stmt.Exec(title, body)
-    if err != nil {
-        return 0, err
-    }
+	// 3. excute the request and pass parameters into the bound content
+	rs, err = stmt.Exec(title, body)
+	if err != nil {
+		return 0, err
+	}
 
-    // 4. if the insertion is successful, the auto-increment ID will be returned
-    if id, err = rs.LastInsertId(); id > 0 {
-        return id, nil
-    }
+	// 4. if the insertion is successful, the auto-increment ID will be returned
+	if id, err = rs.LastInsertId(); id > 0 {
+		return id, nil
+	}
 
-    return 0, err
+	return 0, err
 }
 
 func forceHTMLMiddleware(next http.Handler) http.Handler {
@@ -265,6 +380,8 @@ func main() {
 	router.HandleFunc("/articles", articlesIndexHandler).Methods("GET").Name("articles.index")
 	router.HandleFunc("/articles", articlesStoreHandler).Methods("POST").Name("articles.store")
 	router.HandleFunc("/articles/create", articlesCreateHandler).Methods("GET").Name("articles.create")
+	router.HandleFunc("/articles/{id:[0-9]+}/edit", articlesEditHandler).Methods("GET").Name("articles.edit")
+	router.HandleFunc("/articles/{id:[0-9]+}", articlesUpdateHandler).Methods("POST").Name("articles.update")
 
 	// custom 404 page
 	router.NotFoundHandler = http.HandlerFunc(notFoundHandler)
